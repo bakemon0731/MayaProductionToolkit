@@ -2259,7 +2259,7 @@ def create_widget(parent=None):
     )
 
     title = QtWidgets.QLabel(
-        "UEエクスポートMayaツール（バージョン2）"
+        "UEエクスポートMayaツール"
     )
 
     title.setObjectName(

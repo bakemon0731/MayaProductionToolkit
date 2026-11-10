@@ -1,56 +1,13 @@
-# =========================================
-# 08. Shelfボタン登録（小型アイコン）
-# =========================================
+import sys
 
-if target_button:
+MPT_ROOT = r"E:\Maya-UE-Export-Toolkit\scripts"
 
-    cmds.shelfButton(
-        target_button,
-        edit=True,
+if MPT_ROOT not in sys.path:
+    sys.path.insert(0, MPT_ROOT)
 
-        label="Export Toolkit",
+import launcher
+import importlib
 
-        annotation="Maya → Unreal Export Toolkit",
+importlib.reload(launcher)
 
-        sourceType="python",
-
-        command=launcher_code,
-
-        image=ICON_PATH,
-
-        style="iconOnly",
-
-        scaleIcon=True,
-
-        width=32,
-
-        height=32
-    )
-
-    print("既存Shelfボタンを更新しました。")
-
-else:
-
-    cmds.shelfButton(
-        parent=current_shelf,
-
-        label="Export Toolkit",
-
-        annotation="Maya → Unreal Export Toolkit",
-
-        sourceType="python",
-
-        command=launcher_code,
-
-        image=ICON_PATH,
-
-        style="iconOnly",
-
-        scaleIcon=True,
-
-        width=32,
-
-        height=32
-    )
-
-    print("Shelfボタンを新規作成しました。")
+launcher.show_ui()
