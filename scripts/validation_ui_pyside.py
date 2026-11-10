@@ -791,16 +791,181 @@ def _append_fix_notice(result_view, message):
     )
 
 
+def handle_transform_fix_request(result_view, request, validation_checks):
+    """検証結果の1行から、個別Transform修正を実行する。"""
+
+    object_path = request.get("object")
+
+    if request.get("check") != "Transform" or not object_path:
+        _append_fix_notice(
+            result_view,
+            "Transformの修正対象情報が不正です。再度、全項目チェックを実行してください。"
+        )
+        return
+
+    validation_targets = list(
+        getattr(result_view, "validation_targets", [])
+    )
+
+    if object_path not in validation_targets:
+        _append_fix_notice(
+            result_view,
+            "この行は現在の検証対象と一致しません。\n"
+            "再度、全項目チェックを実行してください。"
+        )
+        return
+
+    matches = cmds.ls(
+        object_path,
+        long=True,
+        type="transform"
+    ) or []
+
+    if len(matches) != 1:
+        _append_fix_notice(
+            result_view,
+            "修正対象を一意に特定できません。シーンの状態を確認して再検証してください。"
+        )
+        return
+
+    object_path = matches[0]
+
+    try:
+        current_translate = cmds.getAttr(object_path + ".translate")[0]
+        current_rotate = cmds.getAttr(object_path + ".rotate")[0]
+        current_scale = cmds.getAttr(object_path + ".scale")[0]
+    except Exception as error:
+        _append_fix_notice(
+            result_view,
+            "Transformの現在値を取得できませんでした: {}".format(error)
+        )
+        return
+
+    confirmed = ask_confirmation(
+        result_view.window(),
+        "Transformの自動修正",
+        (
+            "次のオブジェクトにFreeze Transformationsを実行します。\n\n"
+            "対象: {}\n\n"
+            "Translate: {}\n"
+            "Rotate: {}\n"
+            "Scale: {}\n\n"
+            "メッシュ頂点のワールド座標を修正前後で比較し、\n"
+            "変化を検出した場合はUndoで復元します。\n\n"
+            "実行しますか？"
+        ).format(
+            object_path,
+            current_translate,
+            current_rotate,
+            current_scale
+        )
+    )
+
+    if not confirmed:
+        return
+
+    original_selection = cmds.ls(
+        selection=True,
+        long=True
+    ) or []
+
+    try:
+        fix_result = fix_transforms.fix_object_transform(
+            object_path
+        )
+
+        if fix_result.get("status") != "OK":
+            _append_fix_notice(
+                result_view,
+                "Transformの自動修正を完了できませんでした。\n"
+                "対象: {}\n"
+                "状態: {}\n"
+                "内容: {}\n"
+                "詳細: {}".format(
+                    object_path,
+                    fix_result.get("status", "不明"),
+                    fix_result.get("message", "詳細不明"),
+                    fix_result.get("details", [])
+                )
+            )
+            return
+
+        # The transform path does not change when Freeze Transformations runs.
+        # Revalidate the same target set so the table and summary are refreshed.
+        updated_targets = [
+            path
+            for path in validation_targets
+            if cmds.objExists(path)
+        ]
+
+        if object_path not in updated_targets:
+            updated_targets.append(object_path)
+
+        cmds.select(
+            updated_targets,
+            replace=True
+        )
+
+        run_all_validations(
+            result_view,
+            validation_checks,
+            display=True
+        )
+
+        _append_fix_notice(
+            result_view,
+            (
+                "Transformを自動修正しました。\n"
+                "対象: {}\n"
+                "{}\n"
+                "再検証を実行しました。"
+            ).format(
+                object_path,
+                "\n".join(str(item) for item in fix_result.get("details", []))
+            )
+        )
+
+    except Exception as error:
+        print(traceback.format_exc())
+        _append_fix_notice(
+            result_view,
+            "Transformの自動修正中に予期しないエラーが発生しました。\n{}".format(error)
+        )
+
+    finally:
+        try:
+            valid_selection = [
+                item
+                for item in original_selection
+                if cmds.objExists(item.split(".", 1)[0])
+            ]
+
+            if valid_selection:
+                cmds.select(valid_selection, replace=True)
+            else:
+                cmds.select(clear=True)
+
+        except Exception:
+            print("MPT: Mayaの選択状態を復元できませんでした。")
+            print(traceback.format_exc())
+
+
 def handle_fix_request(result_view, request, validation_checks):
     """検証結果ウィジェットからの修正要求を処理する。
 
-    UIは要求を受け取るだけにし、Mayaシーンの変更は既存の
-    fix_namesモジュールへ委譲する。
+    UIは要求を受け取り、修正種別に応じた既存モジュールへ処理を委譲する。
     """
 
     fix_action = request.get("fix_action")
 
-    # 命名規則だけを実装する。
+    if fix_action == "freeze_transform":
+        return handle_transform_fix_request(
+            result_view,
+            request,
+            validation_checks
+        )
+
+    # Step 2で実装した命名規則修正。
     if fix_action != "rename":
         _append_fix_notice(
             result_view,

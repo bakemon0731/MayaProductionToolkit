@@ -191,8 +191,11 @@ class StatusResultWidget(QtWidgets.QWidget):
 
     # 検証項目名と、自動修正処理を識別するキーの対応表。
     # ここに登録した項目だけが「修正」ボタンの対象になる。
+    # 自動修正に対応した検証項目と、親画面へ渡す処理キー。
+    # TransformはStep 3で個別修正処理を接続する。
     FIXABLE_CHECKS = {
         "命名規則": "rename",
+        "Transform": "freeze_transform",
     }
 
     VALID_STATUSES = {
