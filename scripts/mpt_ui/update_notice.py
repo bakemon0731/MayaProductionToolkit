@@ -6,6 +6,7 @@
 
 import os
 import json
+import html
 
 try:
     from PySide6 import QtWidgets
@@ -177,7 +178,7 @@ class UpdateNoticeWindow(QtWidgets.QDialog):
 
         self.setMinimumSize(
             720,
-            400
+            540
         )
 
         self.build_ui()
@@ -185,6 +186,7 @@ class UpdateNoticeWindow(QtWidgets.QDialog):
     def build_ui(self):
 
         layout = QtWidgets.QVBoxLayout(self)
+        layout.setSpacing(10)
 
         # タイトル
         title = QtWidgets.QLabel(
@@ -211,13 +213,16 @@ class UpdateNoticeWindow(QtWidgets.QDialog):
 
         layout.addWidget(subtitle)
 
-        # 更新内容
+        # ---------------------------------
+        # 更新内容(メイン枠)
+        # ---------------------------------
+
         content = QtWidgets.QTextBrowser()
 
         content.setOpenExternalLinks(False)
 
-        content.setPlainText(
-            self.create_release_text()
+        content.setHtml(
+            self.create_release_html()
         )
 
         content.setStyleSheet("""
@@ -225,12 +230,56 @@ class UpdateNoticeWindow(QtWidgets.QDialog):
                 background-color: #222B35;
                 color: #F0F3F7;
                 border: 1px solid #354253;
+                border-radius: 5px;
                 padding: 12px;
-                font-size: 12px;
+                font-size: 13px;
             }
         """)
 
-        layout.addWidget(content)
+        # 更新内容を広めに取る(下の枠より優先して伸びる)
+        layout.addWidget(content, 3)
+
+        # ---------------------------------
+        # 開発者コメント(別枠)
+        # ---------------------------------
+
+        comment_html = self.create_comment_html()
+
+        if comment_html:
+
+            comment_label = QtWidgets.QLabel(
+                "開発者コメント"
+            )
+
+            comment_label.setStyleSheet("""
+                font-size: 13px;
+                font-weight: bold;
+                color: #E0A458;
+            """)
+
+            layout.addWidget(comment_label)
+
+            comment = QtWidgets.QTextBrowser()
+
+            comment.setOpenExternalLinks(False)
+
+            comment.setHtml(comment_html)
+
+            comment.setMinimumHeight(90)
+            comment.setMaximumHeight(160)
+
+            comment.setStyleSheet("""
+                QTextBrowser {
+                    background-color: #2A2630;
+                    color: #F0F3F7;
+                    border: 1px solid #8A6A3A;
+                    border-radius: 5px;
+                    padding: 10px;
+                    font-size: 12px;
+                }
+            """)
+
+            layout.addWidget(comment, 1)
 
         # 閉じるボタン
         close_button = QtWidgets.QPushButton(
@@ -265,41 +314,83 @@ class UpdateNoticeWindow(QtWidgets.QDialog):
         """)
 
     # -------------------------------------
-    # 更新内容の文章生成
+    # 更新内容のHTML生成(新しい順)
     # -------------------------------------
 
-    def create_release_text(self):
+    def create_release_html(self):
 
-        lines = []
+        parts = []
 
-        for release in self.releases:
+        for release in reversed(self.releases):
 
-            lines.append(
-                "■ Version "
-                + release["version"]
+            version = html.escape(release.get("version", ""))
+            date = html.escape(release.get("date", ""))
+            title = html.escape(release.get("title", ""))
+
+            # バージョン見出しバー
+            parts.append(
+                '<table width="100%" cellspacing="0" cellpadding="7">'
+                '<tr><td bgcolor="#24647A">'
+                '<span style="color:white; font-weight:bold; font-size:15px;">'
+                'Version ' + version + '</span>'
+                '&nbsp;&nbsp;'
+                '<span style="color:#B7C6D4; font-size:12px;">'
+                + date + '</span>'
+                '</td></tr></table>'
             )
 
-            lines.append(
-                release.get("date", "")
-            )
-
-            lines.append(
-                release.get("title", "")
-            )
-
-            lines.append("")
-
-            for change in release.get("changes", []):
-
-                lines.append(
-                    "  ・" + change
+            # タイトル
+            if title:
+                parts.append(
+                    '<p style="color:#68C8DC; font-size:14px; '
+                    'font-weight:bold; margin-top:8px; margin-bottom:4px;">'
+                    + title + '</p>'
                 )
 
-            lines.append("")
-            lines.append("-" * 40)
-            lines.append("")
+            # 変更点リスト
+            items = "".join(
+                '<li style="margin-bottom:5px;">'
+                + html.escape(change)
+                + '</li>'
+                for change in release.get("changes", [])
+            )
 
-        return "\n".join(lines)
+            if items:
+                parts.append(
+                    '<ul style="margin-top:2px; margin-bottom:18px;">'
+                    + items + '</ul>'
+                )
+
+        return "".join(parts)
+
+    # -------------------------------------
+    # 開発者コメントのHTML生成
+    # -------------------------------------
+
+    def create_comment_html(self):
+
+        parts = []
+
+        for release in reversed(self.releases):
+
+            text = release.get("developer_comment", "").strip()
+
+            if not text:
+                continue
+
+            version = html.escape(release.get("version", ""))
+
+            body = html.escape(text).replace("\n", "<br>")
+
+            parts.append(
+                '<p style="margin-bottom:2px;">'
+                '<span style="color:#E0A458; font-weight:bold;">'
+                'v' + version + '</span></p>'
+                '<p style="margin-top:0px; margin-bottom:10px;">'
+                + body + '</p>'
+            )
+
+        return "".join(parts)
 
 
 # =========================================
