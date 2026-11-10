@@ -1,4 +1,5 @@
 import hashlib
+import math
 import struct
 
 import maya.cmds as cmds
@@ -9,12 +10,6 @@ import maya.api.OpenMaya as om
 # 01. 自動削除してよい履歴ノードの判定
 # =========================================
 
-# ポリゴンを編集したときに作られるノードは、
-# 型名がすべて "poly" で始まる。
-#   例: polyCube / polyExtrudeFace / polyUnite(Combine) /
-#       polyBevel3 / polyMergeVert / polyTweak ...
-# これらは「操作の記録」であり、削除しても
-# 現在の形状は結果としてメッシュに残る。
 MODELING_PREFIX = "poly"
 
 # "poly" で始まらないが、ポリゴン編集に付随して作られるノード
@@ -24,20 +19,168 @@ MODELING_EXTRA_TYPES = {
     "deleteColorSet",
 }
 
-# 注意:
-# skinCluster / blendShape / cluster などのデフォーマーや、
-# アニメーションのノード(animCurve など)はここに含めない。
-# 削除すると見た目や動作が変わる可能性があるため、
-# 今までどおり「対象外」として自動削除を見送る。
+
+def _flatten_matrix_value(value):
+    """cmds.getAttr() のmatrix戻り値を16要素のfloat配列にする。"""
+
+    while (
+        isinstance(value, (tuple, list))
+        and len(value) == 1
+        and isinstance(value[0], (tuple, list))
+    ):
+        value = value[0]
+
+    if not isinstance(value, (tuple, list)) or len(value) != 16:
+        raise ValueError("16要素のMatrixを取得できません")
+
+    matrix = [float(component) for component in value]
+
+    if not all(math.isfinite(component) for component in matrix):
+        raise ValueError("Matrixに有限でない値が含まれています")
+
+    return matrix
 
 
-def is_modeling_history_type(node_type):
-    """ポリゴン編集の履歴ノード(自動削除してよい種類)ならTrueを返す。"""
+def _is_safe_transform_geometry(node, target):
+    """限定した条件を満たす transformGeometry だけを自動削除候補にする。
+
+    条件:
+      - inputGeometry の入力元が1つで、対象の履歴チェーン内にある
+      - 入力元が既知のポリゴンモデリング履歴
+      - outputGeometry の出力先が対象Transform配下の表示Mesh Shape.inMeshだけ
+      - transform / invertTransform / freezeNormals / reverseNormals に外部入力がない
+      - invertTransform=False、freezeNormals=0、reverseNormals=False
+      - Matrixが有限値で、線形部分が特異行列ではない
+
+    MatrixがIdentityであることは要求しない。静的な変換は
+    constructionHistory=True による履歴削除時に最終ジオメトリへ焼き込まれ、
+    その結果は fix_object_history() の前後比較で検証する。
+    """
+
+    try:
+        if not cmds.objExists(node) or cmds.nodeType(node) != "transformGeometry":
+            return False
+
+        target = _resolve_transform(target)
+        target_shapes = set(get_mesh_shapes(target))
+        if not target_shapes:
+            return False
+
+        # inputGeometry の入力元が一つであること。
+        input_sources = cmds.listConnections(
+            node + ".inputGeometry",
+            source=True,
+            destination=False,
+            plugs=True
+        ) or []
+        if len(input_sources) != 1:
+            return False
+
+        source_node = input_sources[0].split(".", 1)[0]
+        if not cmds.objExists(source_node):
+            return False
+
+        source_type = cmds.nodeType(source_node)
+        if not (
+            source_type.startswith(MODELING_PREFIX)
+            or source_type in MODELING_EXTRA_TYPES
+        ):
+            return False
+
+        # 入力元が実際にこの対象オブジェクトの履歴に含まれること。
+        target_history = set(get_history_nodes(target))
+        if source_node not in target_history:
+            return False
+
+        # 出力先は対象の表示Shape.inMeshひとつだけ。
+        output_destinations = cmds.listConnections(
+            node + ".outputGeometry",
+            source=False,
+            destination=True,
+            plugs=True
+        ) or []
+        if len(output_destinations) != 1:
+            return False
+
+        destination_node, separator, destination_attr = output_destinations[0].partition(".")
+        if not separator or destination_attr.split("[")[0] != "inMesh":
+            return False
+
+        destination_shapes = cmds.ls(
+            destination_node,
+            long=True,
+            type="mesh"
+        ) or []
+        if len(destination_shapes) != 1 or destination_shapes[0] not in target_shapes:
+            return False
+
+        # 外部ノードが設定値を駆動するケースは対象外。
+        for attribute in (
+            "transform",
+            "invertTransform",
+            "freezeNormals",
+            "reverseNormals",
+        ):
+            incoming = cmds.listConnections(
+                node + "." + attribute,
+                source=True,
+                destination=False,
+                plugs=True
+            ) or []
+            if incoming:
+                return False
+
+        if bool(cmds.getAttr(node + ".invertTransform")):
+            return False
+        if int(cmds.getAttr(node + ".freezeNormals")) != 0:
+            return False
+        if bool(cmds.getAttr(node + ".reverseNormals")):
+            return False
+
+        matrix = _flatten_matrix_value(cmds.getAttr(node + ".transform"))
+
+        # Mayaの4x4アフィン行列として扱えることを確認。
+        if any(abs(matrix[index]) > 1.0e-8 for index in (3, 7, 11)):
+            return False
+        if abs(matrix[15] - 1.0) > 1.0e-8:
+            return False
+
+        # 3x3線形部分の行列式。ゼロスケール等の退化変換は拒否する。
+        a, b, c = matrix[0], matrix[1], matrix[2]
+        d, e, f = matrix[4], matrix[5], matrix[6]
+        g, h, i = matrix[8], matrix[9], matrix[10]
+        determinant = (
+            a * (e * i - f * h)
+            - b * (d * i - f * g)
+            + c * (d * h - e * g)
+        )
+        if abs(determinant) <= 1.0e-12:
+            return False
+
+        return True
+
+    except Exception:
+        # Maya APIの取得に失敗した場合は安全側に倒して自動修正しない。
+        return False
+
+
+def is_modeling_history_type(node_type, node=None, target=None):
+    """自動削除を許可する履歴ノードならTrueを返す。
+
+    poly系と既存の補助ノードは従来どおり許可する。
+    transformGeometryは接続・設定を検査した場合だけ許可する。
+    """
 
     if node_type.startswith(MODELING_PREFIX):
         return True
 
-    return node_type in MODELING_EXTRA_TYPES
+    if node_type in MODELING_EXTRA_TYPES:
+        return True
+
+    if node_type == "transformGeometry" and node and target:
+        return _is_safe_transform_geometry(node, target)
+
+    return False
 
 
 # 「履歴」としては扱わないノード(マテリアル割り当ての管理用)。
@@ -178,7 +321,7 @@ def analyze_history(obj):
     unsupported_nodes = [
         node
         for node, node_type in history_types.items()
-        if not is_modeling_history_type(node_type)
+        if not is_modeling_history_type(node_type, node=node, target=obj)
     ]
 
     return {
