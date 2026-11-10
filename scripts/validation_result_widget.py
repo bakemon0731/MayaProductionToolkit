@@ -185,6 +185,19 @@ class StatusBadgeLabel(QtWidgets.QLabel):
 
 class StatusResultWidget(QtWidgets.QWidget):
 
+    # 修正ボタンが押されたとき、親画面へ対象行の情報を通知する。
+    # 実際のMaya修正処理は、このシグナルを受け取る側で実装する。
+    fix_requested = QtCore.Signal(dict)
+
+    # 検証項目名と、自動修正処理を識別するキーの対応表。
+    # ここに登録した項目だけが「修正」ボタンの対象になる。
+    FIXABLE_CHECKS = {
+        "命名規則": "rename",
+        "Transform": "transform",
+        "Construction History": "history",
+        "構築履歴": "history",
+    }
+
     VALID_STATUSES = {
         "OK",
         "NG",
@@ -237,13 +250,15 @@ class StatusResultWidget(QtWidgets.QWidget):
             "statusResultTable"
         )
 
-        self.result_table.setColumnCount(4)
+        # 既存の4列に「修正」列を追加する。
+        self.result_table.setColumnCount(5)
 
         self.result_table.setHorizontalHeaderLabels([
             "オブジェクト",
             "検証項目",
             "状態",
-            "内容"
+            "内容",
+            "修正"
         ])
 
         self.result_table.verticalHeader().setVisible(
@@ -272,7 +287,10 @@ class StatusResultWidget(QtWidgets.QWidget):
 
         header = self.result_table.horizontalHeader()
 
-        header.setStretchLastSection(True)
+        # 「内容」列だけを余った幅に合わせる。
+        # 最終列をStretchにすると修正ボタン列が横に広がるため、
+        # 最終列はResizeToContentsにする。
+        header.setStretchLastSection(False)
 
         header.setSectionResizeMode(
             0,
@@ -294,6 +312,11 @@ class StatusResultWidget(QtWidgets.QWidget):
             RESIZE_STRETCH
         )
 
+        header.setSectionResizeMode(
+            4,
+            RESIZE_TO_CONTENTS
+        )
+
         self.result_table.setColumnWidth(
             0, 120
         )
@@ -304,6 +327,10 @@ class StatusResultWidget(QtWidgets.QWidget):
 
         self.result_table.setColumnWidth(
             2, 80
+        )
+
+        self.result_table.setColumnWidth(
+            4, 76
         )
 
         main_layout.addWidget(
@@ -585,7 +612,41 @@ class StatusResultWidget(QtWidgets.QWidget):
         return rows
 
     # =====================================
-    # 05. 結果表示の更新
+    # 05. 修正対象の判定
+    # =====================================
+
+    def get_fix_action(self, row_data):
+        """検証結果から、自動修正に対応する処理キーを取得する。
+
+        OKやWARNING、ERROR、SKIPには修正ボタンを表示しない。
+        未登録の検証項目にも修正ボタンを表示しない。
+        """
+
+        if row_data.get("status") != "NG":
+            return None
+
+        check_name = row_data.get("check", "")
+
+        return self.FIXABLE_CHECKS.get(check_name)
+
+    # =====================================
+    # 06. 修正要求の通知
+    # =====================================
+
+    def emit_fix_request(self, row_data, fix_action):
+        """修正ボタンのクリックを、親ウィジェットへ通知する。
+
+        このウィジェット自身はMayaシーンを変更しない。
+        実際の修正は、シグナルを受け取る側に任せる。
+        """
+
+        request = dict(row_data)
+        request["fix_action"] = fix_action
+
+        self.fix_requested.emit(request)
+
+    # =====================================
+    # 07. 結果表示の更新
     # =====================================
 
     def setPlainText(self, text):
@@ -714,6 +775,96 @@ class StatusResultWidget(QtWidgets.QWidget):
                 3,
                 detail_item
             )
+
+            # ---------------------------------
+            # 修正ボタン
+            # ---------------------------------
+            # NGかつ自動修正に対応する項目だけボタンを表示する。
+            fix_action = self.get_fix_action(row_data)
+
+            if fix_action:
+
+                fix_button = QtWidgets.QPushButton(
+                    "修正"
+                )
+
+                fix_button.setObjectName(
+                    "validationFixButton"
+                )
+
+                fix_button.setFixedWidth(58)
+                fix_button.setFixedHeight(25)
+
+                fix_button.setToolTip(
+                    "この検証項目を自動修正します。"
+                )
+
+                fix_button.setStyleSheet("""
+                    QPushButton#validationFixButton {
+                        background-color: #285D48;
+                        color: #E4FFF0;
+                        border: 1px solid #397D61;
+                        border-radius: 4px;
+                        padding: 2px 8px;
+                        font-size: 10px;
+                        font-weight: bold;
+                    }
+
+                    QPushButton#validationFixButton:hover {
+                        background-color: #34785B;
+                    }
+
+                    QPushButton#validationFixButton:pressed {
+                        background-color: #1F4938;
+                    }
+                """)
+
+                # ループ変数の値を固定して、クリック時に
+                # 正しい行のデータが通知されるようにする。
+                fix_button.clicked.connect(
+                    lambda checked=False,
+                    data=dict(row_data),
+                    action=fix_action:
+                        self.emit_fix_request(data, action)
+                )
+
+                fix_container = QtWidgets.QWidget()
+                fix_layout = QtWidgets.QHBoxLayout(
+                    fix_container
+                )
+
+                fix_layout.setContentsMargins(
+                    2, 0, 2, 0
+                )
+
+                fix_layout.setSpacing(0)
+                fix_layout.addWidget(
+                    fix_button,
+                    0,
+                    ALIGN_CENTER
+                )
+
+                self.result_table.setCellWidget(
+                    row,
+                    4,
+                    fix_container
+                )
+
+            else:
+
+                no_fix_item = QtWidgets.QTableWidgetItem(
+                    "—"
+                )
+
+                no_fix_item.setTextAlignment(
+                    ALIGN_CENTER
+                )
+
+                self.result_table.setItem(
+                    row,
+                    4,
+                    no_fix_item
+                )
 
             self.result_table.setRowHeight(
                 row,
