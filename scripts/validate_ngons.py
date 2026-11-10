@@ -11,7 +11,7 @@ def validate_ngons(obj):
     # Meshがない場合
     if not shapes:
         result = {
-            "object": name,
+            "object": obj,
             "check": "N-gon",
             "status": "NG",
             "message": "Meshが見つかりません",
@@ -19,7 +19,7 @@ def validate_ngons(obj):
         }
 
         print(name,"-> Meshが見つかりません")
-        return
+        return result
 
     # 検出したN-gonの情報を保存する
     ngon_faces = []
@@ -66,7 +66,7 @@ def validate_ngons(obj):
 
         #検証結果を辞書として返す
         result = {
-            "object": name,
+            "object": obj,
             "check": "N-gon",
             "status": status,
             "message": message,

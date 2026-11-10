@@ -22,7 +22,7 @@ def validate_history(obj):
 
     # 検証結果を辞書として返す
     result = {
-        "object": name,
+        "object": obj,
         "check": "Construction History",
         "status": status,
         "message": message,

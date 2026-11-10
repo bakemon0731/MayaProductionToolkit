@@ -40,7 +40,7 @@ def validate_transform(obj):
 
     #　検証結果を辞書として返す
     result = {
-        "object": name,
+        "object": obj,
         "check": "Transform",
         "status": status,
         "message": message,

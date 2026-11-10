@@ -9,7 +9,7 @@ def validate_uvs(obj):
     # Meshが見つからない場合
     if not shapes:
         result = {
-            "object": name,
+            "object": obj,
             "check": "UV",
             "status": "NG",
             "message": "Meshが見つかりません",
@@ -69,7 +69,7 @@ def validate_uvs(obj):
 
     # 検証結果を辞書として返す
     result = {
-        "object": name,
+        "object": obj,
         "check": "UV",
         "status": status,
         "message": message,

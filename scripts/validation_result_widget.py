@@ -193,9 +193,6 @@ class StatusResultWidget(QtWidgets.QWidget):
     # ここに登録した項目だけが「修正」ボタンの対象になる。
     FIXABLE_CHECKS = {
         "命名規則": "rename",
-        "Transform": "transform",
-        "Construction History": "history",
-        "構築履歴": "history",
     }
 
     VALID_STATUSES = {

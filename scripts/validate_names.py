@@ -35,7 +35,7 @@ def validate_selected_names():
 
         #辞書を用意
         result = {
-            "object": name,
+            "object": obj,
             "check": "命名規則",
             "status": status,
             "message": message

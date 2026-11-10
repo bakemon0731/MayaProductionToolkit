@@ -123,6 +123,14 @@ def run_validation(
 
     try:
 
+        # 個別検証でも、修正後に同じ対象を再検証できるよう保持する。
+        if result_view is not None:
+            result_view.validation_targets = cmds.ls(
+                selection=True,
+                long=True,
+                type="transform"
+            ) or []
+
         results = check_function() or []
 
         if not results:
@@ -227,6 +235,11 @@ def run_all_validations(
         long=True,
         type="transform"
     ) or []
+
+    # 直近の検証対象を保持する。
+    # 修正後に同じ対象全体を再検証するために使用する。
+    if result_view is not None:
+        result_view.validation_targets = list(selected)
 
     if not selected:
 
@@ -747,7 +760,253 @@ def ask_confirmation(
 
 
 # =========================================
-# 08. 自動修正結果の表示
+# 08. 検証結果からの個別自動修正
+# =========================================
+
+def _replace_dag_path_prefix(path, old_path, new_path):
+    """DAGパスの先頭部分を置き換える。コンポーネント指定にも対応。"""
+
+    if not path:
+        return path
+
+    if (
+        path == old_path
+        or path.startswith(old_path + "|")
+        or path.startswith(old_path + ".")
+    ):
+        return new_path + path[len(old_path):]
+
+    return path
+
+
+def _append_fix_notice(result_view, message):
+    """検証結果ログの末尾に修正処理の結果を追記する。"""
+
+    current_text = result_view.toPlainText()
+
+    result_view.setPlainText(
+        current_text
+        + "\n\n===== 自動修正結果 =====\n"
+        + message
+    )
+
+
+def handle_fix_request(result_view, request, validation_checks):
+    """検証結果ウィジェットからの修正要求を処理する。
+
+    UIは要求を受け取るだけにし、Mayaシーンの変更は既存の
+    fix_namesモジュールへ委譲する。
+    """
+
+    fix_action = request.get("fix_action")
+
+    # 命名規則だけを実装する。
+    if fix_action != "rename":
+        _append_fix_notice(
+            result_view,
+            "この修正項目はまだ実装されていません。"
+        )
+        return
+
+    object_path = request.get("object")
+
+    if not object_path:
+        _append_fix_notice(
+            result_view,
+            "修正対象のDAGパスを取得できませんでした。"
+        )
+        return
+
+    # 検証時と同じDAGフルパスでオブジェクトを再取得する。
+    matches = cmds.ls(
+        object_path,
+        long=True,
+        type="transform"
+    ) or []
+
+    if len(matches) != 1:
+        _append_fix_notice(
+            result_view,
+            "修正対象を一意に特定できません。\n"
+            "シーンの状態が変わった可能性があります。\n"
+            "もう一度検証を実行してください。"
+        )
+        return
+
+    object_path = matches[0]
+    object_name = object_path.split("|")[-1]
+    suggested_name = fix_names.build_fixed_name(object_name)
+
+    # 最新の検証対象に含まれているか確認する。
+    validation_targets = list(
+        getattr(result_view, "validation_targets", [])
+    )
+
+    if object_path not in validation_targets:
+        _append_fix_notice(
+            result_view,
+            "この行は現在の検証対象と一致しません。\n"
+            "再度、全項目チェックを実行してください。"
+        )
+        return
+
+    confirmed = ask_confirmation(
+        result_view.window(),
+        "命名規則の自動修正",
+        (
+            "次のオブジェクト名を変更します。\n\n"
+            "対象: {}\n"
+            "変更前: {}\n"
+            "変更後の予定: {}\n\n"
+            "実行しますか？"
+        ).format(
+            object_path,
+            object_name,
+            suggested_name
+        )
+    )
+
+    if not confirmed:
+        return
+
+    # Mayaの現在の選択を保存する。
+    original_selection = cmds.ls(
+        selection=True,
+        long=True
+    ) or []
+
+    try:
+
+        # 選択状態に依存しないAPIで、対象1つだけを修正する。
+        fix_result = fix_names.fix_object_name(
+            object_path
+        )
+
+        if fix_result.get("status") != "OK":
+            details = fix_result.get("details", [])
+            _append_fix_notice(
+                result_view,
+                "修正に失敗しました。\n"
+                "対象: {}\n"
+                "状態: {}\n"
+                "内容: {}\n"
+                "詳細: {}".format(
+                    object_path,
+                    fix_result.get("status", "不明"),
+                    fix_result.get("message", "詳細不明"),
+                    details
+                )
+            )
+            return
+
+        details = fix_result.get("details", [])
+        detail = details[0] if details else {}
+        new_path = detail.get("変更後パス") or fix_result.get("object")
+
+        if not new_path or not cmds.objExists(new_path):
+            _append_fix_notice(
+                result_view,
+                "修正処理は終了しましたが、変更後のオブジェクトを確認できません。"
+            )
+            return
+
+        # 元の検証対象リストの中で、変更されたDAGパスを更新する。
+        updated_targets = [
+            _replace_dag_path_prefix(
+                path,
+                object_path,
+                new_path
+            )
+            for path in validation_targets
+        ]
+
+        updated_targets = [
+            path
+            for path in updated_targets
+            if cmds.objExists(path)
+        ]
+
+        if new_path not in updated_targets:
+            updated_targets.append(new_path)
+
+        # 修正後の対象全体を選択して再検証する。
+        cmds.select(
+            updated_targets,
+            replace=True
+        )
+
+        run_all_validations(
+            result_view,
+            validation_checks,
+            display=True
+        )
+
+        _append_fix_notice(
+            result_view,
+            (
+                "命名規則を自動修正しました。\n"
+                "変更前: {}\n"
+                "変更後: {}\n"
+                "再検証を実行しました。"
+            ).format(
+                object_name,
+                new_path.split("|")[-1]
+            )
+        )
+
+        # 変更によってパスが変わった選択項目も追従させる。
+        restored_selection = [
+            _replace_dag_path_prefix(
+                item,
+                object_path,
+                new_path
+            )
+            for item in original_selection
+        ]
+
+    except Exception as error:
+
+        print(traceback.format_exc())
+
+        _append_fix_notice(
+            result_view,
+            "自動修正中に予期しないエラーが発生しました。\n{}".format(
+                error
+            )
+        )
+
+        restored_selection = original_selection
+
+    finally:
+
+        # Mayaの選択状態を元に戻す。
+        try:
+            if "restored_selection" not in locals():
+                restored_selection = original_selection
+
+            valid_selection = [
+                item
+                for item in restored_selection
+                if cmds.objExists(item.split(".", 1)[0])
+            ]
+
+            if valid_selection:
+                cmds.select(
+                    valid_selection,
+                    replace=True
+                )
+            else:
+                cmds.select(clear=True)
+
+        except Exception:
+            print(
+                "MPT: Mayaの選択状態を復元できませんでした。"
+            )
+            print(traceback.format_exc())
+
+
+# =========================================
+# 09. 自動修正結果の表示
 # =========================================
 
 def append_fix_results(
@@ -2259,7 +2518,7 @@ def create_widget(parent=None):
     )
 
     title = QtWidgets.QLabel(
-        "UEエクスポートMayaツール"
+        "UEエクスポートMayaツール（バージョン2）"
     )
 
     title.setObjectName(
@@ -2974,6 +3233,18 @@ def create_widget(parent=None):
     # -------------------------------------
 
     result_view = validation_result_widget.StatusResultWidget()
+
+    # 修正ボタンから送信される要求を、親画面で受け取る。
+    result_view.fix_requested.connect(
+        lambda request,
+        view=result_view,
+        checks=validation_checks:
+            handle_fix_request(
+                view,
+                request,
+                checks
+            )
+    )
 
     result_view.setObjectName(
         "resultView"
