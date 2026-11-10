@@ -787,6 +787,11 @@ def append_fix_results(
             []
         )
 
+        # detailsが辞書のときも、項目名と値を表示できるようにする
+        if isinstance(details, dict):
+
+            details = [details]
+
         if details:
 
             lines.append("追加情報:")
@@ -1488,26 +1493,12 @@ def run_history_auto_fix(
 
     for obj in selected:
 
-        shapes = cmds.listRelatives(
-            obj,
-            shapes=True,
-            noIntermediate=True,
-            fullPath=True
-        ) or []
-
-        mesh_shapes = [
-
-            shape
-
-            for shape in shapes
-
-            if cmds.nodeType(shape) == "mesh"
-
-        ]
-
         object_name = obj.split("|")[-1]
 
-        if not mesh_shapes:
+        # 履歴の調査は fix_history 側の共通関数に任せる
+        analysis = fix_history.analyze_history(obj)
+
+        if not analysis["mesh_shapes"]:
 
             skipped_objects.append(
                 (
@@ -1518,12 +1509,7 @@ def run_history_auto_fix(
 
             continue
 
-        history = cmds.listHistory(
-            obj,
-            pruneDagObjects=True
-        ) or []
-
-        if not history:
+        if not analysis["history"]:
 
             skipped_objects.append(
                 (
@@ -1534,34 +1520,16 @@ def run_history_auto_fix(
 
             continue
 
-        history_types = {
-
-            node: cmds.nodeType(node)
-
-            for node in history
-
-        }
-
-        unsupported_nodes = [
-
-            node
-
-            for node, node_type in history_types.items()
-
-            if node_type not in fix_history.ALLOWED_HISTORY_TYPES
-
-        ]
-
-        if unsupported_nodes:
+        if analysis["unsupported"]:
 
             node_details = ", ".join(
 
                 "{} ({})".format(
                     node,
-                    history_types[node]
+                    analysis["types"][node]
                 )
 
-                for node in unsupported_nodes
+                for node in analysis["unsupported"]
 
             )
 

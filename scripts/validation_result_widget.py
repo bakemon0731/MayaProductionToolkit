@@ -1,4 +1,3 @@
-
 import re
 
 # =========================================
@@ -391,6 +390,13 @@ class StatusResultWidget(QtWidgets.QWidget):
 
                 current_row = None
 
+                # 厳格チェックの「判定」欄は、上の検証結果の
+                # 再掲(NGだけの一覧)なので、表には登録しない。
+                # (登録すると同じNGが二重に数えられる)
+                if heading == "厳格チェック判定":
+
+                    break
+
                 if heading == "修正後の再検証結果":
 
                     current_check = "再検証"
@@ -461,6 +467,24 @@ class StatusResultWidget(QtWidgets.QWidget):
                     "",
                     1
                 ).strip()
+
+                current_row = None
+
+                continue
+
+            # ---------------------------------
+            # 検証項目名の行
+            # ---------------------------------
+            # 「検証: Construction History」のような行で
+            # 検証項目名を更新する。これがないと、次の「状態:」の行が
+            # 直前の項目名(例: UV)のまま登録されてしまう。
+
+            if stripped.startswith("検証:"):
+
+                current_check = stripped.split(
+                    ":",
+                    1
+                )[1].strip()
 
                 current_row = None
 

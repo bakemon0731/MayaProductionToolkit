@@ -1,11 +1,13 @@
-from unittest import result
-import maya.cmds as cmds 
+import maya.cmds as cmds
+
+import fix_history
 
 # 1つのオブジェクトの履歴を調べる
 def validate_history(obj):
     name = obj.split("|")[-1]
 
-    history_nodes = cmds.listHistory(obj,pruneDagObjects=True) or []
+    # マテリアル割り当て用のノード(groupIdなど)は履歴として扱わない
+    history_nodes = fix_history.get_history_nodes(obj)
 
     # 検証結果を決定する
     if history_nodes:
@@ -24,7 +26,10 @@ def validate_history(obj):
         "check": "Construction History",
         "status": status,
         "message": message,
-        "details": history_nodes
+        "details": [
+            "{} ({})".format(node, cmds.nodeType(node))
+            for node in history_nodes
+        ]
     }
 
     return result
