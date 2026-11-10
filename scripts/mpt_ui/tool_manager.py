@@ -1,4 +1,3 @@
-
 # =========================================
 # Maya Production Toolkit
 # Tool Manager
@@ -11,13 +10,18 @@ import sys
 class ToolManager:
 
     # =====================================
-    # 01. ツール起動
+    # 01. 共通処理: 登録情報から関数を取り出す
     # =====================================
 
-    def launch(self, tool_info):
+    def _load_function(self, tool_info, function_key):
 
         """
-        登録された機能を読み込み、実行する。
+        tool_registryの登録情報から、モジュールを読み込み、
+        function_keyで指定された名前の関数を取り出す。
+
+        function_key:
+            "function"        -> 単独ウィンドウで起動する関数(show_ui)
+            "widget_function" -> 画面部品だけを作って返す関数(create_widget)
         """
 
         # ---------------------------------
@@ -47,12 +51,13 @@ class ToolManager:
 
         module_name = tool_info.get("module")
 
-        function_name = tool_info.get("function")
+        function_name = tool_info.get(function_key)
 
         if not module_name or not function_name:
 
             raise ValueError(
-                f"{tool_title}の起動情報が登録されていません。"
+                f"{tool_title}の起動情報"
+                f"({function_key})が登録されていません。"
             )
 
         # ---------------------------------
@@ -72,30 +77,61 @@ class ToolManager:
             )
 
         # ---------------------------------
-        # 04. 起動関数の取得
+        # 04. 関数の取得
         # ---------------------------------
 
-        launch_function = getattr(
+        function = getattr(
             module,
             function_name,
             None
         )
 
-        if launch_function is None:
+        if function is None:
 
             raise AttributeError(
                 f"{module_name}に"
                 f"{function_name}が存在しません。"
             )
 
-        if not callable(launch_function):
+        if not callable(function):
 
             raise TypeError(
                 f"{function_name}は実行可能な関数ではありません。"
             )
 
-        # ---------------------------------
-        # 05. 機能の実行
-        # ---------------------------------
+        return function
+
+    # =====================================
+    # 02. 単独ウィンドウで起動(従来の方法)
+    # =====================================
+
+    def launch(self, tool_info):
+
+        """
+        登録された機能を、独立したウィンドウとして起動する。
+        """
+
+        launch_function = self._load_function(
+            tool_info,
+            "function"
+        )
 
         return launch_function()
+
+    # =====================================
+    # 03. 画面部品だけを作る(ホーム画面への組み込み用)
+    # =====================================
+
+    def create_widget(self, tool_info, parent=None):
+
+        """
+        登録された機能の画面部品(QWidget)を作って返す。
+        ウィンドウとしては表示しない。表示する場所は呼び出し側が決める。
+        """
+
+        widget_function = self._load_function(
+            tool_info,
+            "widget_function"
+        )
+
+        return widget_function(parent)

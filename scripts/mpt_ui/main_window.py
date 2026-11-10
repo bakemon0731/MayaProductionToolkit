@@ -1,4 +1,3 @@
-
 # =========================================
 # Maya Production Toolkit
 # Main Window
@@ -43,6 +42,7 @@ try:
 
     WINDOW_FLAG = QtCore.Qt.WindowType.Window
     ALIGN_CENTER = QtCore.Qt.AlignmentFlag.AlignCenter
+    STYLED_BACKGROUND = QtCore.Qt.WidgetAttribute.WA_StyledBackground
 
 except ImportError:
 
@@ -52,6 +52,7 @@ except ImportError:
 
     WINDOW_FLAG = QtCore.Qt.Window
     ALIGN_CENTER = QtCore.Qt.AlignCenter
+    STYLED_BACKGROUND = QtCore.Qt.WA_StyledBackground
 
 
 
@@ -99,19 +100,43 @@ class ProductionToolkitWindow(QtWidgets.QWidget):
         # ツール管理クラスを生成
         self.tool_manager = ToolManager()
 
-        self.build_ui()
+        # いま開いているツールのページ(ホームのときはNone)
+        self.tool_page = None
+
+        # 画面を切り替えるための入れ物(QStackedWidget)
+        # 0番目がホーム画面。ツールを開くと、その上にツールのページを重ねる。
+        self.stack = QtWidgets.QStackedWidget()
+
+        shell_layout = QtWidgets.QVBoxLayout(self)
+
+        shell_layout.setContentsMargins(0, 0, 0, 0)
+
+        shell_layout.addWidget(self.stack)
+
+        # ホーム画面のページを作って登録
+        self.home_page = self.build_home_page()
+
+        self.stack.addWidget(self.home_page)
+
+        self.stack.setCurrentWidget(self.home_page)
 
     # =====================================
     # 04. UI構築
     # =====================================
 
-    def build_ui(self):
+    def build_home_page(self):
+
+        # ホーム画面は「1枚のページ(QWidget)」として作る。
+        # ウィンドウそのものではないので、ツールのページと入れ替えられる。
+        page = QtWidgets.QWidget()
+
+        page.setObjectName("homePage")
 
         # ---------------------------------
         # メインレイアウト
         # ---------------------------------
 
-        main_layout = QtWidgets.QVBoxLayout(self)
+        main_layout = QtWidgets.QVBoxLayout(page)
 
         main_layout.setContentsMargins(
             28, 24, 28, 24
@@ -288,9 +313,11 @@ class ProductionToolkitWindow(QtWidgets.QWidget):
         # 06. デザイン
         # =================================
 
-        self.setStyleSheet("""
+        # デザインはホームのページだけに適用する。
+        # (ウィンドウ全体に適用すると、ツール側の見た目に混ざってしまう)
+        page.setStyleSheet("""
 
-            QWidget#MayaProductionToolkitWindow {
+            QWidget#homePage {
                 background-color: #171D27;
             }
 
@@ -424,6 +451,8 @@ class ProductionToolkitWindow(QtWidgets.QWidget):
 
         """)
 
+        return page
+
     # =====================================
     # 07. 機能起動
     # =====================================
@@ -438,8 +467,8 @@ class ProductionToolkitWindow(QtWidgets.QWidget):
 
         try:
 
-            # ToolManagerに機能の起動を依頼
-            self.tool_manager.launch(tool_info)
+            # 新しいウィンドウは作らず、このウィンドウの中に開く
+            self.open_tool(tool_info)
 
         except Exception:
 
@@ -458,6 +487,177 @@ class ProductionToolkitWindow(QtWidgets.QWidget):
                 + error_text
 
             )
+
+    # =====================================
+    # 08. ツールをこのウィンドウの中に開く
+    # =====================================
+
+    def open_tool(self, tool_info):
+
+        tool_title = tool_info.get(
+            "title",
+            "不明な機能"
+        )
+
+        # すでに開いているツールがあれば、先に片付ける
+        self.close_tool_page()
+
+        # ツール本体のWidgetを作る(ここではまだ表示しない)
+        # 作成に失敗したら例外になり、ホーム画面のまま残る
+        tool_widget = self.tool_manager.create_widget(
+            tool_info
+        )
+
+        # 背景色が確実に描かれるようにする
+        tool_widget.setAttribute(
+            STYLED_BACKGROUND,
+            True
+        )
+
+        # ---------------------------------
+        # ツール用のページ
+        #   上: 「ホームに戻る」バー
+        #   下: ツール本体
+        # ---------------------------------
+
+        page = QtWidgets.QWidget()
+
+        page.setObjectName("toolHostPage")
+
+        page.setStyleSheet(
+            "QWidget#toolHostPage { background-color: #171D27; }"
+        )
+
+        page_layout = QtWidgets.QVBoxLayout(page)
+
+        page_layout.setContentsMargins(0, 0, 0, 0)
+
+        page_layout.setSpacing(0)
+
+        # --- 上のバー ---
+
+        bar = QtWidgets.QFrame()
+
+        bar.setObjectName("hostBar")
+
+        bar_layout = QtWidgets.QHBoxLayout(bar)
+
+        bar_layout.setContentsMargins(16, 8, 16, 8)
+
+        bar_layout.setSpacing(14)
+
+        back_button = QtWidgets.QPushButton(
+            "← ホームに戻る"
+        )
+
+        back_button.setObjectName("hostBackButton")
+
+        back_button.setToolTip(
+            "ツール選択画面(ホーム)に戻ります。"
+        )
+
+        # ボタンを押したら show_home() を呼ぶ
+        back_button.clicked.connect(
+            self.show_home
+        )
+
+        title_label = QtWidgets.QLabel(
+            tool_title
+        )
+
+        title_label.setObjectName("hostTitleLabel")
+
+        bar_layout.addWidget(back_button)
+
+        bar_layout.addWidget(title_label)
+
+        bar_layout.addStretch()
+
+        # バーだけに適用するデザイン
+        bar.setStyleSheet("""
+
+            QFrame#hostBar {
+                background-color: #1D2530;
+                border-bottom: 1px solid #354253;
+            }
+
+            QPushButton#hostBackButton {
+                background-color: #24647A;
+                color: #FFFFFF;
+                font-size: 12px;
+                font-weight: bold;
+                padding: 7px 14px;
+                border: none;
+                border-radius: 5px;
+            }
+
+            QPushButton#hostBackButton:hover {
+                background-color: #32849C;
+            }
+
+            QPushButton#hostBackButton:pressed {
+                background-color: #19495C;
+            }
+
+            QLabel#hostTitleLabel {
+                color: #F0F3F7;
+                font-size: 13px;
+                font-weight: bold;
+                background: transparent;
+            }
+
+        """)
+
+        page_layout.addWidget(bar)
+
+        # ツール本体を、残りの領域いっぱいに配置
+        page_layout.addWidget(tool_widget, 1)
+
+        # ---------------------------------
+        # ページを登録して、表示を切り替える
+        # ---------------------------------
+
+        self.tool_page = page
+
+        self.stack.addWidget(page)
+
+        self.stack.setCurrentWidget(page)
+
+        self.setWindowTitle(
+            "Maya Production Toolkit - " + tool_title
+        )
+
+    # =====================================
+    # 09. ホーム画面に戻る
+    # =====================================
+
+    def show_home(self, checked=False):
+
+        # 先にホームを表示してから、ツールのページを片付ける
+        self.stack.setCurrentWidget(self.home_page)
+
+        self.setWindowTitle(
+            "Maya Production Toolkit"
+        )
+
+        self.close_tool_page()
+
+    # =====================================
+    # 10. 開いているツールのページを片付ける
+    # =====================================
+
+    def close_tool_page(self):
+
+        if self.tool_page is None:
+
+            return
+
+        self.stack.removeWidget(self.tool_page)
+
+        # すぐに消さず、安全なタイミングで削除する
+        self.tool_page.deleteLater()
+
+        self.tool_page = None
 
 
 # =========================================

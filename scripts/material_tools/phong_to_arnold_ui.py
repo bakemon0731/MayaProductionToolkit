@@ -1,4 +1,3 @@
-
 import importlib
 import traceback
 
@@ -14,6 +13,8 @@ try:
     from shiboken6 import wrapInstance
 
     WINDOW_FLAG = QtCore.Qt.WindowType.Window
+
+    WIDGET_FLAG = QtCore.Qt.WindowType.Widget
 
     ALIGN_CENTER = QtCore.Qt.AlignmentFlag.AlignCenter
 
@@ -48,6 +49,8 @@ except ImportError:
     from shiboken2 import wrapInstance
 
     WINDOW_FLAG = QtCore.Qt.Window
+
+    WIDGET_FLAG = QtCore.Qt.Widget
 
     ALIGN_CENTER = QtCore.Qt.AlignCenter
 
@@ -1326,3 +1329,27 @@ def show_ui():
     WINDOW.show()
 
     return WINDOW
+
+
+# =========================================
+# 12. ホーム画面に組み込む場合
+# =========================================
+
+def create_widget(parent=None):
+
+    """ツール本体のWidgetを作って返す(表示はしない)。"""
+
+    global WINDOW
+
+    widget = PhongToArnoldWindow(parent)
+
+    # PhongToArnoldWindowは、作られた時点で
+    # 「独立したウィンドウ」の設定になっている。
+    # ホーム画面の中に置くため、通常のWidgetに戻す。
+    widget.setWindowFlags(
+        WIDGET_FLAG
+    )
+
+    WINDOW = widget
+
+    return widget

@@ -2129,43 +2129,15 @@ def run_validate_export_and_import(
 # UI作成
 # =========================================
 
-def show_ui():
+def create_widget(parent=None):
+
+    """ツール本体のWidgetを作って返す(表示はしない)。
+
+    ホーム画面の中に組み込むときは、この関数を使う。
+    単独のウィンドウで開くときは、下にある show_ui() を使う。
+    """
 
     global WINDOW
-
-    # -------------------------------------
-    # Mayaのメインウィンドウ
-    # -------------------------------------
-
-    maya_ptr = omui.MQtUtil.mainWindow()
-
-    if not maya_ptr:
-
-        raise RuntimeError(
-            "Mayaのメインウィンドウを取得できません。"
-        )
-
-    maya_window = wrapInstance(
-        int(maya_ptr),
-        QtWidgets.QWidget
-    )
-
-    # -------------------------------------
-    # 古いウィンドウを削除
-    # -------------------------------------
-
-    old_windows = maya_window.findChildren(
-        QtWidgets.QWidget,
-        WINDOW_NAME
-    )
-
-    for old_window in old_windows:
-
-        old_window.close()
-
-        old_window.deleteLater()
-
-    WINDOW = None
 
     # -------------------------------------
     # モジュール再読み込み
@@ -2229,7 +2201,7 @@ def show_ui():
     # =====================================
 
     WINDOW = QtWidgets.QWidget(
-        maya_window
+        parent
     )
 
     WINDOW.setObjectName(
@@ -2238,10 +2210,6 @@ def show_ui():
 
     WINDOW.setWindowTitle(
         "MayaからUEへ書き出しツール"
-    )
-
-    WINDOW.setWindowFlags(
-        WINDOW_FLAG
     )
 
     WINDOW.resize(
@@ -3276,12 +3244,67 @@ def show_ui():
         
     """)
 
-    # =====================================
-    #  UI表示
-    # =====================================
+    return WINDOW
+
+
+# =========================================
+# 単独ウィンドウで起動する場合
+# =========================================
+
+def show_ui():
+
+    global WINDOW
+
+    # -------------------------------------
+    # Mayaのメインウィンドウ
+    # -------------------------------------
+
+    maya_ptr = omui.MQtUtil.mainWindow()
+
+    if not maya_ptr:
+
+        raise RuntimeError(
+            "Mayaのメインウィンドウを取得できません。"
+        )
+
+    maya_window = wrapInstance(
+        int(maya_ptr),
+        QtWidgets.QWidget
+    )
+
+    # -------------------------------------
+    # 古いウィンドウを削除
+    # -------------------------------------
+
+    old_windows = maya_window.findChildren(
+        QtWidgets.QWidget,
+        WINDOW_NAME
+    )
+
+    for old_window in old_windows:
+
+        old_window.close()
+
+        old_window.deleteLater()
+
+    WINDOW = None
+
+    # -------------------------------------
+    # ツール本体を作り、独立したウィンドウとして表示
+    # -------------------------------------
+
+    WINDOW = create_widget(
+        maya_window
+    )
+
+    WINDOW.setWindowFlags(
+        WINDOW_FLAG
+    )
 
     WINDOW.show()
 
     print(
         "Maya → Unreal Export Toolkitを起動しました。"
     )
+
+    return WINDOW

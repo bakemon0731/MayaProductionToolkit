@@ -1,4 +1,3 @@
-
 # =========================================
 # Maya Production Toolkit
 # Tool Registry
@@ -45,7 +44,10 @@ def get_tool_definitions():
 
             "module": "validation_ui_pyside",
 
-            "function": "show_ui"
+            "function": "show_ui",
+
+            # ホーム画面の中に組み込むときに呼ぶ関数
+            "widget_function": "create_widget"
         },
 
         # =================================
@@ -70,7 +72,10 @@ def get_tool_definitions():
 
             "module": "material_tools.phong_to_arnold_ui",
 
-            "function": "show_ui"
+            "function": "show_ui",
+
+            # ホーム画面の中に組み込むときに呼ぶ関数
+            "widget_function": "create_widget"
         },
 
         # =================================
@@ -95,7 +100,9 @@ def get_tool_definitions():
 
             "module": None,
 
-            "function": None
+            "function": None,
+
+            "widget_function": None
         },
 
         # =================================
@@ -120,7 +127,9 @@ def get_tool_definitions():
 
             "module": None,
 
-            "function": None
+            "function": None,
+
+            "widget_function": None
         }
 
     ]
