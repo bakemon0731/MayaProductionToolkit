@@ -950,6 +950,198 @@ def handle_transform_fix_request(result_view, request, validation_checks):
             print(traceback.format_exc())
 
 
+
+def handle_history_fix_request(result_view, request, validation_checks):
+    """検証結果の1行から、指定オブジェクトのHistoryだけを削除する。"""
+
+    object_path = request.get("object")
+
+    if request.get("check") != "Construction History" or not object_path:
+        _append_fix_notice(
+            result_view,
+            "Construction Historyの修正対象情報が不正です。再度検証してください。"
+        )
+        return
+
+    validation_targets = list(
+        getattr(result_view, "validation_targets", [])
+    )
+
+    if object_path not in validation_targets:
+        _append_fix_notice(
+            result_view,
+            "この行は現在の検証対象と一致しません。再度、全項目チェックを実行してください。"
+        )
+        return
+
+    importlib.reload(fix_history)
+
+    matches = cmds.ls(
+        object_path,
+        long=True,
+        type="transform"
+    ) or []
+
+    if len(matches) != 1:
+        _append_fix_notice(
+            result_view,
+            "修正対象を一意に特定できません。シーンの状態を確認して再検証してください。"
+        )
+        return
+
+    object_path = matches[0]
+
+    try:
+        analysis = fix_history.analyze_history(object_path)
+    except Exception as error:
+        _append_fix_notice(
+            result_view,
+            "Construction Historyを調査できませんでした: {}".format(error)
+        )
+        return
+
+    if not analysis["mesh_shapes"]:
+        _append_fix_notice(
+            result_view,
+            "対象にメッシュShapeがないため修正できません。"
+        )
+        return
+
+    if not analysis["history"]:
+        _append_fix_notice(
+            result_view,
+            "対象にはConstruction Historyが残っていません。再検証してください。"
+        )
+        return
+
+    if analysis["unsupported"]:
+        unsupported_text = "\n".join(
+            "・{} ({})".format(node, analysis["types"][node])
+            for node in analysis["unsupported"]
+        )
+        _append_fix_notice(
+            result_view,
+            "自動削除に対応していない履歴が含まれています。\n"
+            "安全のため処理を中止しました。\n{}".format(unsupported_text)
+        )
+        return
+
+    block_reason = fix_history.get_history_fix_block_reason(object_path)
+    if block_reason:
+        _append_fix_notice(
+            result_view,
+            "このオブジェクトは自動修正対象外です。\n{}".format(block_reason)
+        )
+        return
+
+    history_text = "\n".join(
+        "・{} ({})".format(node, analysis["types"][node])
+        for node in analysis["history"]
+    )
+
+    confirmed = ask_confirmation(
+        result_view.window(),
+        "Construction Historyの自動修正",
+        (
+            "次のオブジェクトからConstruction Historyを削除します。\n\n"
+            "対象: {}\n\n"
+            "【削除対象の履歴】\n{}\n\n"
+            "削除後は、これらのモデリング操作を履歴から編集できなくなります。\n"
+            "ワールド頂点・境界ボックス・マテリアル割り当てを比較し、\n"
+            "問題があればUndoで復元します。\n\n"
+            "実行しますか？"
+        ).format(
+            object_path,
+            history_text
+        )
+    )
+
+    if not confirmed:
+        return
+
+    original_selection = cmds.ls(
+        selection=True,
+        long=True
+    ) or []
+
+    try:
+        fix_result = fix_history.fix_object_history(object_path)
+
+        if fix_result.get("status") != "OK":
+            _append_fix_notice(
+                result_view,
+                "Construction Historyの自動修正を完了できませんでした。\n"
+                "対象: {}\n"
+                "状態: {}\n"
+                "内容: {}\n"
+                "詳細: {}".format(
+                    object_path,
+                    fix_result.get("status", "不明"),
+                    fix_result.get("message", "詳細不明"),
+                    fix_result.get("details", [])
+                )
+            )
+            return
+
+        # History削除ではTransformのDAGパスは変わらない。
+        updated_targets = [
+            path
+            for path in validation_targets
+            if cmds.objExists(path)
+        ]
+
+        if object_path not in updated_targets:
+            updated_targets.append(object_path)
+
+        cmds.select(
+            updated_targets,
+            replace=True
+        )
+
+        run_all_validations(
+            result_view,
+            validation_checks,
+            display=True
+        )
+
+        _append_fix_notice(
+            result_view,
+            (
+                "Construction Historyを自動修正しました。\n"
+                "対象: {}\n"
+                "{}\n"
+                "再検証を実行しました。"
+            ).format(
+                object_path,
+                "\n".join(str(item) for item in fix_result.get("details", []))
+            )
+        )
+
+    except Exception as error:
+        print(traceback.format_exc())
+        _append_fix_notice(
+            result_view,
+            "Construction Historyの自動修正中に予期しないエラーが発生しました。\n{}".format(error)
+        )
+
+    finally:
+        try:
+            valid_selection = [
+                item
+                for item in original_selection
+                if cmds.objExists(item.split(".", 1)[0])
+            ]
+
+            if valid_selection:
+                cmds.select(valid_selection, replace=True)
+            else:
+                cmds.select(clear=True)
+
+        except Exception:
+            print("MPT: Mayaの選択状態を復元できませんでした。")
+            print(traceback.format_exc())
+
+
 def handle_fix_request(result_view, request, validation_checks):
     """検証結果ウィジェットからの修正要求を処理する。
 
@@ -960,6 +1152,13 @@ def handle_fix_request(result_view, request, validation_checks):
 
     if fix_action == "freeze_transform":
         return handle_transform_fix_request(
+            result_view,
+            request,
+            validation_checks
+        )
+
+    if fix_action == "delete_history":
+        return handle_history_fix_request(
             result_view,
             request,
             validation_checks

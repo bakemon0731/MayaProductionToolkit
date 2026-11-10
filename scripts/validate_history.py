@@ -6,15 +6,33 @@ import fix_history
 def validate_history(obj):
     name = obj.split("|")[-1]
 
-    # マテリアル割り当て用のノード(groupIdなど)は履歴として扱わない
-    history_nodes = fix_history.get_history_nodes(obj)
+    # UIの個別修正と同じ共通分析を利用する。
+    analysis = fix_history.analyze_history(obj)
+    history_nodes = analysis["history"]
 
-    # 検証結果を決定する
+    # 検証結果を決定する。対応外履歴が混在する場合はNGを維持しつつ、
+    # UIに「自動修正対象外」と伝えて修正ボタンを表示しない。
     if history_nodes:
         status = "NG"
-        message = "構築履歴が残っています"
+
+        if analysis["unsupported"]:
+            message = (
+                "構築履歴が残っています（自動修正対象外の履歴を含みます）"
+            )
+        else:
+            block_reason = fix_history.get_history_fix_block_reason(obj)
+            if block_reason:
+                message = "構築履歴が残っています（自動修正対象外: {}）".format(
+                    block_reason
+                )
+            else:
+                message = "構築履歴が残っています（自動修正可能）"
+
         print(name, "-> 構築履歴あり")
-        print("履歴ノード:",history_nodes)
+        print("履歴ノード:", history_nodes)
+
+        if analysis["unsupported"]:
+            print("自動修正対象外:", analysis["unsupported"])
     else:
         status = "OK"
         message = "構築履歴がありません"

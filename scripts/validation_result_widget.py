@@ -192,10 +192,11 @@ class StatusResultWidget(QtWidgets.QWidget):
     # 検証項目名と、自動修正処理を識別するキーの対応表。
     # ここに登録した項目だけが「修正」ボタンの対象になる。
     # 自動修正に対応した検証項目と、親画面へ渡す処理キー。
-    # TransformはStep 3で個別修正処理を接続する。
+    # 自動修正に対応した検証項目と、親画面へ渡す処理キー。
     FIXABLE_CHECKS = {
         "命名規則": "rename",
         "Transform": "freeze_transform",
+        "Construction History": "delete_history",
     }
 
     VALID_STATUSES = {
@@ -626,6 +627,15 @@ class StatusResultWidget(QtWidgets.QWidget):
             return None
 
         check_name = row_data.get("check", "")
+        detail = row_data.get("detail", "")
+
+        # Construction Historyに自動削除できない履歴が含まれる場合、
+        # NG表示は維持するが「修正」ボタンは出さない。
+        if (
+            check_name == "Construction History"
+            and "自動修正対象外" in detail
+        ):
+            return None
 
         return self.FIXABLE_CHECKS.get(check_name)
 
